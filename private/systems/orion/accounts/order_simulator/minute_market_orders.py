@@ -25,7 +25,7 @@ def _build_minute_series_data_for_order_simulator(
     instrument_code: str,
     is_subsystem: bool = False,
 ) -> OrdersSeriesData:
-    price_series = system_accounts_stage.get_minute_prices(instrument_code)['FINAL']
+    price_series = system_accounts_stage.get_prices(instrument_code)['FINAL']
     if is_subsystem:
         unrounded_positions = (
             system_accounts_stage.get_unrounded_subsystem_position_for_order_simulator(

@@ -1,0 +1,98 @@
+#YAML
+#start_date: 2022-01-01 00:00:00
+use_forecast_weight_estimates: False
+use_forecast_div_mult_estimates: False
+use_instrument_weight_estimates: True
+use_instrument_div_mult_estimates: True
+use_forecast_scale_estimates: True
+#
+#
+#
+# Raw data
+#
+barsize: 'H'
+#
+# Trading rules
+#
+volatility_calculation:
+  func: "sysquant.estimators.vol.mixed_minute_vol_calc"
+  name_returns_attr_in_rawdata: "aggregated_minute_returns"
+  multiplier_to_get_daily_vol: 4.90 # 37.95
+  minutes: 35
+  min_periods: 10
+  vol_abs_min: 0.0000000001
+  slow_vol_weeks: 20
+  proportion_of_slow_vol: 0.35
+  backfill: True
+#
+use_attenuation:
+  - 'mr_logit_ols_slope60'
+  - 'mr_logit_ols_slope120'
+  - 'mr_logit_ols_slope240'
+  - 'mr_logit_ols_slope480'
+  - 'mr_logit_ols_slope960'
+#
+trading_rules:
+  mr_logit_ols_slope60:
+    function: private.systems.crypto_2024.rules.logit_ols_slope.mr_logit_ols_slope
+    data:
+      - "rawdata.get_aggregated_minute_final_prices"
+      - "rawdata.returns_volatility"
+    other_args:
+      lookback: 60
+  mr_logit_ols_slope120:
+    function: private.systems.crypto_2024.rules.logit_ols_slope.mr_logit_ols_slope
+    data:
+      - "rawdata.get_aggregated_minute_final_prices"
+      - "rawdata.returns_volatility"
+    other_args:
+      lookback: 120
+  mr_logit_ols_slope240:
+    function: private.systems.crypto_2024.rules.logit_ols_slope.mr_logit_ols_slope
+    data:
+      - "rawdata.get_aggregated_minute_final_prices"
+      - "rawdata.returns_volatility"
+    other_args:
+      lookback: 240
+  mr_logit_ols_slope480:
+    function: private.systems.crypto_2024.rules.logit_ols_slope.mr_logit_ols_slope
+    data:
+      - "rawdata.get_aggregated_minute_final_prices"
+      - "rawdata.returns_volatility"
+    other_args:
+      lookback: 480
+  mr_logit_ols_slope960:
+    function: private.systems.crypto_2024.rules.logit_ols_slope.mr_logit_ols_slope
+    data:
+      - "rawdata.get_aggregated_minute_final_prices"
+      - "rawdata.returns_volatility"
+    other_args:
+      lookback: 960
+#
+forecast_cap: 20.0
+#
+#
+# forecast combination
+#
+# Capital correction
+#
+percentage_vol_target: 25.0
+notional_trading_capital: 1000000
+base_currency: "USDT"
+#
+# Portfolio creation
+#
+#instrument_div_multiplier: 1.5
+#
+#
+buffer_method: none
+buffer_size: 1.0
+buffer_trade_to_edge: True
+# costs and accounting
+use_SR_costs: False
+vol_normalise_currency_costs: True
+#
+forecast_div_multiplier: 1.0
+min_abs_forecast: 0.0
+#
+#

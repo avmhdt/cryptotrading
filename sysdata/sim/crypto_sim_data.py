@@ -1,3 +1,5 @@
+import datetime
+
 import pandas as pd
 
 from syscore.exceptions import missingInstrument
@@ -8,6 +10,7 @@ from sysobjects.instruments import (
     cryptoInstrumentWithMetaData
 )
 from sysobjects.crypto_prices import cryptoPrices
+from sysobjects.spot_fx_prices import fxPrices
 
 
 class cryptoSimData(simData):
@@ -28,7 +31,7 @@ class cryptoSimData(simData):
         :param instrument_code:
         :return: price
         """
-        price = self.get_spot_crypto_price(instrument_code)
+        price = self.get_crypto_prices(instrument_code)
         if len(price) == 0:
             raise Exception("Instrument code %s has no data!" % instrument_code)
 
@@ -90,7 +93,7 @@ class cryptoSimData(simData):
     def get_spread_cost(self, instrument_code: str) -> float:
         raise NotImplementedError
 
-    def get_spot_crypto_price(
+    def get_crypto_prices(
         self, instrument_code: str
     ) -> cryptoPrices:
         """
@@ -112,6 +115,39 @@ class cryptoSimData(simData):
         """
 
         raise NotImplementedError()
+
+    def get_value_of_block_price_move(self, instrument_code: str) -> float:
+        """
+        How much is a $1 move worth in value terms?
+
+        :param instrument_code: instrument to get value for
+        :type instrument_code: str
+
+        :returns: float
+
+        """
+
+        instr_object = self.get_instrument_object_with_meta_data(instrument_code)
+        meta_data = instr_object.meta_data
+        block_move_value = meta_data.Pointsize
+
+        return block_move_value
+
+    def _get_fx_data_from_start_date(
+        self, currency1: str, currency2: str, start_date: datetime.datetime
+    ) -> fxPrices:
+        """
+        Get the FX rate currency1/currency2 between two currencies
+        Or return None if not available
+
+        (Normally we'd over ride this with a specific source)
+
+
+        """
+        instrument_code = f'{currency1}_{currency2}'
+        crypto_prices_df = self.get_raw_price_from_start_date(instrument_code, start_date)
+
+        return fxPrices(crypto_prices_df.FINAL)
 
 
 if __name__ == "__main__":

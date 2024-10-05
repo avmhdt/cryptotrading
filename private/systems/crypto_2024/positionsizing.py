@@ -1,21 +1,17 @@
 import pandas as pd
+import numpy as np
 
-
-from syscore.dateutils import ROOT_BDAYS_INYEAR
+from syscore.dateutils import ROOT_MINUTES_IN_A_YEAR, from_config_frequency_pandas_resample, Frequency
 from syscore.exceptions import missingData
 
 from sysdata.config.configdata import Config
 from sysdata.sim.sim_data import simData
 from sysquant.estimators.vol import robust_vol_calc
+from private.systems.crypto_2024.buffering import apply_buffers_to_position, calculate_buffers
 
-from systems.buffering import (
-    calculate_buffers,
-    calculate_actual_buffers,
-    apply_buffers_to_position,
-)
 from systems.stage import SystemStage
 from systems.system_cache import input, diagnostic, output
-from systems.forecast_combine import ForecastCombine
+from private.systems.crypto_2024.forecast_combine import ForecastCombine
 from private.systems.crypto_2024.rawdata import cryptoMinuteRawData
 
 
@@ -26,15 +22,15 @@ class PositionSizing(SystemStage):
     KEY INPUTS: a) system.combForecast.get_combined_forecast(instrument_code)
                  found in self.get_combined_forecast
 
-                b) system.rawdata.get_daily_percentage_volatility(instrument_code)
+                b) system.rawdata.get_minute_percentage_volatility(instrument_code)
                  found in self.get_price_volatility(instrument_code)
 
-                 If not found, uses system.data.daily_prices to calculate
+                 If not found, uses system.data.minute_prices to calculate
 
-                c) system.rawdata.daily_denominator_price((instrument_code)
+                c) system.rawdata.minute_denominator_price((instrument_code)
                  found in self.get_instrument_sizing_data(instrument_code)
 
-                If not found, uses system.data.daily_prices
+                If not found, uses system.data.minute_prices
 
                 d)  system.data.get_value_of_block_price_move(instrument_code)
                  found in self.get_instrument_sizing_data(instrument_code)
@@ -125,7 +121,7 @@ class PositionSizing(SystemStage):
         vol_scalar = self.get_average_position_at_subsystem_level(instrument_code)
         forecast = self.get_combined_forecast(instrument_code)
 
-        vol_scalar = vol_scalar.reindex(forecast.index, method="ffill")
+        vol_scalar = vol_scalar.reindex(forecast.index, method="ffill").where(forecast.diff().ne(0.0), np.nan).ffill() ## FIXME
 
         subsystem_position_raw = vol_scalar * forecast / avg_abs_forecast
         subsystem_position = self._apply_long_only_constraint_to_position(
@@ -198,7 +194,7 @@ class PositionSizing(SystemStage):
         )
 
         instr_value_vol = self.get_instrument_value_vol(instrument_code)
-        cash_vol_target = self.get_daily_cash_vol_target()
+        cash_vol_target = self.get_cash_vol_target_for_a_bar()
 
         vol_scalar = cash_vol_target / instr_value_vol
 
@@ -238,7 +234,7 @@ class PositionSizing(SystemStage):
         )
 
         instr_ccy_vol = self.get_instrument_currency_vol(instrument_code)
-        fx_rate = self.get_fx_rate(instrument_code)
+        fx_rate = pd.Series(1.0, index=instr_ccy_vol.index)
 
         fx_rate = fx_rate.reindex(instr_ccy_vol.index, method="ffill")
 
@@ -280,12 +276,12 @@ class PositionSizing(SystemStage):
         )
 
         block_value = self.get_block_value(instrument_code)
-        daily_perc_vol = self.get_price_volatility(instrument_code)
+        minute_perc_vol = self.get_price_volatility(instrument_code)
 
         ## FIXME WHY NOT RESAMPLE?
-        (block_value, daily_perc_vol) = block_value.align(daily_perc_vol, join="inner")
+        (block_value, minute_perc_vol) = block_value.align(minute_perc_vol, join="inner")
 
-        instr_ccy_vol = block_value.ffill() * daily_perc_vol
+        instr_ccy_vol = block_value.ffill() * minute_perc_vol
 
         return instr_ccy_vol
 
@@ -368,9 +364,9 @@ class PositionSizing(SystemStage):
         try:
             rawdata = self.rawdata_stage
         except missingData:
-            underlying_price = self.data.daily_prices(instrument_code)
+            underlying_price = self.data.minute_prices(instrument_code)
         else:
-            underlying_price = rawdata.daily_denominator_price(instrument_code)
+            underlying_price = rawdata.get_aggregated_minute_final_prices(instrument_code)
 
         return underlying_price
 
@@ -390,7 +386,7 @@ class PositionSizing(SystemStage):
     @input
     def get_price_volatility(self, instrument_code: str) -> pd.Series:
         """
-        Get the daily % volatility; If a rawdata stage exists from there; otherwise work it out
+        Get the minute % volatility; If a rawdata stage exists from there; otherwise work it out
 
         :param instrument_code: instrument to get values for
         :type instrument_code: str
@@ -419,17 +415,17 @@ class PositionSizing(SystemStage):
         2015-12-11  0.059724
         """
 
-        daily_perc_vol = self.rawdata_stage.get_daily_percentage_volatility(
+        minute_perc_vol = self.rawdata_stage.get_percentage_volatility(
             instrument_code
         )
 
-        return daily_perc_vol
+        return minute_perc_vol
 
     @diagnostic()
     def get_vol_target_dict(self) -> dict:
         # FIXME UGLY REPLACE WITH COMPONENTS
         """
-        Get the daily cash vol target
+        Get the minute cash vol target
 
         Requires: percentage_vol_target, notional_trading_capital, base_currency
 
@@ -466,24 +462,24 @@ class PositionSizing(SystemStage):
         base_currency = self.get_base_currency()
 
         annual_cash_vol_target = self.annual_cash_vol_target()
-        daily_cash_vol_target = self.get_daily_cash_vol_target()
+        minute_cash_vol_target = self.get_cash_vol_target_for_a_bar()
 
         vol_target_dict = dict(
             base_currency=base_currency,
             percentage_vol_target=percentage_vol_target,
             notional_trading_capital=notional_trading_capital,
             annual_cash_vol_target=annual_cash_vol_target,
-            daily_cash_vol_target=daily_cash_vol_target,
+            minute_cash_vol_target=minute_cash_vol_target,
         )
 
         return vol_target_dict
 
     @diagnostic()
-    def get_daily_cash_vol_target(self) -> float:
+    def get_cash_vol_target_for_a_bar(self) -> float:
         annual_cash_vol_target = self.annual_cash_vol_target()
-        daily_cash_vol_target = annual_cash_vol_target / ROOT_BDAYS_INYEAR
+        aggregated_minute_cash_vol_target = annual_cash_vol_target / (ROOT_MINUTES_IN_A_YEAR/self.root_minutes_in_a_bar)
 
-        return daily_cash_vol_target
+        return aggregated_minute_cash_vol_target
 
     @diagnostic()
     def annual_cash_vol_target(self) -> float:
@@ -509,6 +505,59 @@ class PositionSizing(SystemStage):
     def get_base_currency(self) -> str:
         base_currency = self.config.base_currency
         return base_currency
+
+    @property
+    def barsize(self):
+        return self.rawdata_stage.barsize
+
+    @property
+    def root_minutes_in_a_bar(self):
+        return self.minutes_in_a_bar**0.5
+
+    @property
+    def minutes_in_a_bar(self):
+        frequency = self.barsize
+        if frequency == "T":
+            return 1
+        elif frequency[-1] == "T":
+            return int(frequency[:-1])
+        elif frequency == 'H':
+            return 60
+        elif frequency == 'D':
+            return 60 * 24
+        elif frequency == 'W':
+            return 60 * 24 * 7
+        elif frequency == 'M':
+            return 60 * 24 * 30
+        else:
+            raise Exception("Invalid frequency in config")
+
+        return int(amount)
+
+    @input
+    def get_combined_forecast(self, instrument_code: str) -> pd.Series:
+        """
+        Get the combined forecast from previous module
+
+        :param instrument_code: instrument to get values for
+        :type instrument_code: str
+
+        :returns: Tx1 pd.DataFrame
+
+        KEY INPUT
+
+        >>> from systems.tests.testdata import get_test_object_futures_with_comb_forecasts
+        >>> from systems.basesystem import System
+        >>> (comb, fcs, rules, rawdata, data, config)=get_test_object_futures_with_comb_forecasts()
+        >>> system=System([rawdata, rules, fcs, comb, PositionSizing()], data, config)
+        >>>
+        >>> system.positionSize.get_combined_forecast("EDOLLAR").tail(2)
+                    comb_forecast
+        2015-12-10       1.619134
+        2015-12-11       2.462610
+        """
+
+        return self.comb_forecast_stage.get_combined_forecast(instrument_code)
 
     @input
     def get_fx_rate(self, instrument_code: str) -> pd.Series:
@@ -540,31 +589,6 @@ class PositionSizing(SystemStage):
         )
 
         return fx_rate
-
-    @input
-    def get_combined_forecast(self, instrument_code: str) -> pd.Series:
-        """
-        Get the combined forecast from previous module
-
-        :param instrument_code: instrument to get values for
-        :type instrument_code: str
-
-        :returns: Tx1 pd.DataFrame
-
-        KEY INPUT
-
-        >>> from systems.tests.testdata import get_test_object_futures_with_comb_forecasts
-        >>> from systems.basesystem import System
-        >>> (comb, fcs, rules, rawdata, data, config)=get_test_object_futures_with_comb_forecasts()
-        >>> system=System([rawdata, rules, fcs, comb, PositionSizing()], data, config)
-        >>>
-        >>> system.positionSize.get_combined_forecast("EDOLLAR").tail(2)
-                    comb_forecast
-        2015-12-10       1.619134
-        2015-12-11       2.462610
-        """
-
-        return self.comb_forecast_stage.get_combined_forecast(instrument_code)
 
     @property
     def comb_forecast_stage(self) -> ForecastCombine:

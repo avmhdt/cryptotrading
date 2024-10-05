@@ -60,7 +60,7 @@ class accountInputs(SystemStage):
         return instrument_prices
 
     def get_minute_prices(self, instrument_code: str) -> pd.Series:
-        return self.parent.rawdata.get_minute_prices(instrument_code)
+        return self.parent.rawdata.get_prices(instrument_code)
 
     def has_same_rules_as_code(self, instrument_code):
         """

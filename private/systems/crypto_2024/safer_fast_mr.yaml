@@ -1,0 +1,85 @@
+#YAML
+#start_date: 2022-01-01 00:00:00
+use_forecast_weight_estimates: False
+use_forecast_div_mult_estimates: False
+use_instrument_weight_estimates: False # True
+use_instrument_div_mult_estimates: False # True
+use_forecast_scale_estimates: True
+#
+#
+#
+# Raw data
+#
+barsize: 'H'
+#
+# Trading rules
+#
+volatility_calculation:
+  func: "sysquant.estimators.vol.mixed_minute_vol_calc"
+  name_returns_attr_in_rawdata: "aggregated_minute_returns"
+  multiplier_to_get_daily_vol: 4.90 # 37.95
+  minutes: 35
+  min_periods: 10
+  vol_abs_min: 0.0000000001
+  slow_vol_weeks: 20
+  proportion_of_slow_vol: 0.35
+  backfill: True
+#
+use_attenuation:
+   - 'fast_mr'
+#
+trading_rules:
+  fast_mr:
+     function: private.systems.crypto_2024.rules.fast_mr.safer_fast_mr
+     data:
+         - "rawdata.get_aggregated_minute_final_prices"
+         - "rawdata.returns_volatility"
+     other_args:
+       daily_eq_span: 5
+     #forecast_scalar: 26.0
+#
+forecast_cap: 20.0
+#
+#
+# forecast combination
+#
+# Capital correction
+#
+percentage_vol_target: 2.50
+notional_trading_capital: 1000000000
+base_currency: "USDT"
+#
+# Portfolio creation
+#
+#instrument_div_multiplier: 1.5
+#
+#
+buffer_method: none
+# costs and accounting
+use_SR_costs: False
+vol_normalise_currency_costs: False
+#
+forecast_div_multiplier: 1.0
+min_abs_forecast: 0.0 # 10.0
+#
+risk_overlay:
+  max_risk_fraction_normal_risk: 1.75
+  max_risk_fraction_stdev_risk: 4.0
+  max_risk_limit_sum_abs_risk: 4.0
+  max_risk_leverage: 20.0
+###########################
+instrument_div_multiplier: 1.8
+#instrument_weights:
+#  BTC_USDT: 1.0
+
+instrument_correlation_estimate:
+   func: sysquant.estimators.correlation_over_time.correlation_over_time_for_returns
+   interval_frequency: "D"
+   date_method: "expanding"
+   using_exponent: True
+   ew_lookback: 25
+   min_periods: 20
+   cleaning: True
+   rollyears: 20
+   floor_at_zero: True
+   forward_fill_price_index: True

@@ -140,7 +140,7 @@ class simData(baseData):
             raise Exception("No adjusted hourly prices for %s" % instrument_code)
 
         # ignore type warning - series or data frame both work
-        hourly_prices = get_intraday_pdf_at_frequency(instrprice)
+        hourly_prices = get_intraday_pdf_at_frequency(instrprice, frequency="H")
 
         return hourly_prices
 
@@ -152,7 +152,7 @@ class simData(baseData):
             raise Exception("No adjusted minute prices for %s" % instrument_code)
 
         # ignore type warning - series or data frame both work
-        minute_prices = get_intraday_pdf_at_frequency(instrprice, frequency="M")
+        minute_prices = get_intraday_pdf_at_frequency(instrprice, frequency="min")
 
         return minute_prices
 

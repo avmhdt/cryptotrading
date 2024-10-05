@@ -28,5 +28,4 @@ venv/
 # libreoffice
 .~lock.*
 
-data/futures/
 data/crypto/

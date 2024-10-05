@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from syscore.dateutils import BUSINESS_DAYS_IN_YEAR
-from syscore.pandas.frequency import resample_prices_to_business_day_index
+from syscore.dateutils import BUSINESS_DAYS_IN_YEAR, MINUTES_IN_A_WEEK
+from syscore.pandas.frequency import resample_prices_to_business_day_index, resample_prices_to_minute_index
 
 
 def robust_daily_vol_given_price(price: pd.Series, **kwargs):
@@ -10,6 +10,15 @@ def robust_daily_vol_given_price(price: pd.Series, **kwargs):
     daily_returns = price.diff()
 
     vol = robust_vol_calc(daily_returns, **kwargs)
+
+    return vol
+
+
+def robust_minute_vol_given_price(price: pd.Series, **kwargs):
+    price = resample_prices_to_minute_index(price)
+    minute_returns = price.diff()
+
+    vol = robust_vol_calc(minute_returns, **kwargs)
 
     return vol
 
@@ -195,5 +204,33 @@ def simple_vol_calc(
 ) -> pd.Series:
     # Standard deviation will be nan for first 10 non nan values
     vol = daily_returns.rolling(days, min_periods=min_periods).std()
+
+    return vol
+
+
+def mixed_minute_vol_calc(
+    minute_returns: pd.Series,
+    minutes: int = 35,
+    min_periods: int = 10,
+    slow_vol_weeks: int = 20,
+    proportion_of_slow_vol: float = 0.3,
+    vol_abs_min: float = 0.0000000001,
+    backfill: bool = False,
+    **ignored_kwargs,
+) -> pd.Series:
+
+    # Standard deviation will be nan for first 10 non nan values
+    vol = simple_ewvol_calc(minute_returns, days=minutes, min_periods=min_periods)
+
+    slow_vol_minutes = slow_vol_weeks * 200
+    long_vol = vol.ewm(span=slow_vol_minutes).mean()
+
+    vol = long_vol * proportion_of_slow_vol + vol * (1 - proportion_of_slow_vol)
+
+    vol = apply_min_vol(vol, vol_abs_min=vol_abs_min)
+
+    if backfill:
+        # use the first vol in the past, sort of cheating
+        vol = backfill_vol(vol)
 
     return vol
